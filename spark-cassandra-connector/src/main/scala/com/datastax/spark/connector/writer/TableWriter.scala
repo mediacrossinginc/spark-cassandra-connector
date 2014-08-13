@@ -23,7 +23,8 @@ class TableWriter[T] private (
     maxBatchSizeInBytes: Int,
     maxBatchSizeInRows: Option[Int],
     parallelismLevel: Int,
-    consistencyLevel: ConsistencyLevel) extends Serializable with Logging {
+    consistencyLevel: ConsistencyLevel,
+    ttlSeconds: Option[Int]) extends Serializable with Logging {
 
   import com.datastax.spark.connector.writer.TableWriter._
 
@@ -38,7 +39,8 @@ class TableWriter[T] private (
   private lazy val queryTemplateUsingInsert: String = {
     val columnSpec = columnNames.map(quote).mkString(", ")
     val valueSpec = columnNames.map(":" + _).mkString(", ")
-    s"INSERT INTO ${quote(keyspaceName)}.${quote(tableName)} ($columnSpec) VALUES ($valueSpec)"
+    val ttl = ttlSeconds.map(s => " USING TTL " + s).getOrElse("")
+    s"INSERT INTO ${quote(keyspaceName)}.${quote(tableName)} ($columnSpec) VALUES ($valueSpec)${ttl}"
   }
 
   private lazy val queryTemplateUsingUpdate: String = {
@@ -159,7 +161,8 @@ object TableWriter {
       columnNames: ColumnSelector,
       batchSizeInBytes: Int = DefaultBatchSizeInBytes,
       batchSizeInRows: Option[Int] = None, 
-      parallelismLevel: Int = DefaultParallelismLevel): TableWriter[T] = {
+      parallelismLevel: Int = DefaultParallelismLevel,
+      ttlSeconds: Option[Int] = None): TableWriter[T] = {
 
     val schema = Schema.fromCassandra(connector, Some(keyspaceName), Some(tableName))
     val tableDef = schema.tables.headOption
@@ -169,6 +172,6 @@ object TableWriter {
       case AllColumns => tableDef.allColumns.map(_.columnName).toSeq
     }
     val rowWriter = implicitly[RowWriterFactory[T]].rowWriter(tableDef, selectedColumns)
-    new TableWriter[T](connector, tableDef, rowWriter, batchSizeInBytes, batchSizeInRows, parallelismLevel, consistencyLevel)
+    new TableWriter[T](connector, tableDef, rowWriter, batchSizeInBytes, batchSizeInRows, parallelismLevel, consistencyLevel, ttlSeconds)
   }
 }
