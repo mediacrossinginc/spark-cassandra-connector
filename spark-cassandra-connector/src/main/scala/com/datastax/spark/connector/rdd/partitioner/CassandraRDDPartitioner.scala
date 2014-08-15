@@ -8,6 +8,7 @@ import com.datastax.spark.connector.rdd.partitioner.dht.{Token, TokenFactory}
 import org.apache.cassandra.thrift
 import org.apache.cassandra.thrift.Cassandra
 import org.apache.spark.Partition
+import org.apache.spark.Logging
 import org.apache.thrift.TApplicationException
 
 import scala.collection.JavaConversions._
@@ -20,7 +21,7 @@ class CassandraRDDPartitioner[V, T <: Token[V]](
     tableDef: TableDef,
     splitSize: Long)(
   implicit
-    tokenFactory: TokenFactory[V, T]) {
+    tokenFactory: TokenFactory[V, T]) extends Logging {
 
   type Token = com.datastax.spark.connector.rdd.partitioner.dht.Token[T]
   type TokenRange = com.datastax.spark.connector.rdd.partitioner.dht.TokenRange[V, T]
@@ -32,18 +33,22 @@ class CassandraRDDPartitioner[V, T <: Token[V]](
     val startToken = tokenFactory.fromString(tr.start_token)
     val endToken = tokenFactory.fromString(tr.end_token)
     val endpoints = tr.endpoints.map(InetAddress.getByName).toSet
+    logInfo(s"unthriftified endpoints $endpoints")
     new TokenRange(startToken, endToken, endpoints, None)
   }
 
   private def describeRing(client: Cassandra.Iface): Seq[TokenRange] = {
     val ring =
       try {
+        logInfo(s"describe_local_ring for keyspace '$keyspaceName'")
         client.describe_local_ring(keyspaceName)
       }
       catch {
         case e: TApplicationException if e.getType == TApplicationException.UNKNOWN_METHOD =>
+          logInfo(s"unknown method, describe_ring for keyspace '$keyspaceName'")
           client.describe_ring(keyspaceName)
         case e: java.lang.NoSuchMethodError =>
+          logInfo(s"no such method, describe_ring for keyspace '$keyspaceName'")
           client.describe_ring(keyspaceName)
       }
     ring.map(unthriftify)
